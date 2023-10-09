@@ -30,6 +30,33 @@ app.MapGet("/categories/{id:int}", async (int id, CatalogMinimalAPIContext db) =
 
 });
 
+app.MapPut("/categories/{id:int}", async (int id, Category category, CatalogMinimalAPIContext db) => {
+    if (category.Id != id) {
+        return Results.BadRequest();
+    }
+
+    var categoryDB = await db.Categories.FindAsync(id);
+    if (categoryDB is null) return Results.NotFound();
+
+    categoryDB.Name = category.Name;
+    categoryDB.Description = category.Description;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(categoryDB);
+});
+
+app.MapDelete("/categories/{id:int}", async (int id, CatalogMinimalAPIContext db) => {
+    var category = await db.Categories.FindAsync(id);
+    if (category is null) {
+        return Results.NotFound();
+    }
+
+    db.Categories.Remove(category);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment()) {
     app.UseSwagger();
