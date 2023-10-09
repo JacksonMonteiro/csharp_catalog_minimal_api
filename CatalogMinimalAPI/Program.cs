@@ -1,4 +1,5 @@
 using CatalogMinimalAPI.Context;
+using CatalogMinimalAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,12 +16,18 @@ var app = builder.Build();
 // API Endpoints
 app.MapGet("/", () => "Catalog Minimal API - 2022");
 
+app.MapPost("/categories", async (Category category, CatalogMinimalAPIContext db) => {
+    db.Categories.Add(category);
+    await db.SaveChangesAsync();
+    return Results.Created($"/categories/{category.Id}", category);
+});
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment()) {
     app.UseSwagger();
     app.UseSwaggerUI();
 } 
 
-app.UseHttpsRedirection();
+app.UseHttpsRedirection(); 
 
 app.Run();
