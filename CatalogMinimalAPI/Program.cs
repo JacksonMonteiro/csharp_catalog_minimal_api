@@ -1,20 +1,82 @@
 using CatalogMinimalAPI.Context;
 using CatalogMinimalAPI.Models;
+using CatalogMinimalAPI.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c => {
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Catalog Minimal API", Version = "v1" });
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme() {
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = @"JWT Authorization header using the bearer scheme, Enter 'Bearer' [space].Example: \'Bearer 1234abcdef\'"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement {
+        {
+            new OpenApiSecurityScheme {
+                Reference = new OpenApiReference {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
+    });
+});
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 builder.Services.AddDbContext<CatalogMinimalAPIContext>(options => options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
+// JWT Token
+builder.Services.AddSingleton<ITokenService>(new TokenService());
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options => {
+    options.TokenValidationParameters = new TokenValidationParameters {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+    };
+});
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 // API Endpoints
-app.MapGet("/", () => "Catalog Minimal API - 2022");
+app.MapPost("/login", [AllowAnonymous] (User user, ITokenService tokenService) => {
+    if (user == null) {
+        return Results.BadRequest("Login Inválido");
+    }
+
+    if (user.Username == "jackson" && user.Password == "1234") {
+        var tokenString = tokenService.GenerateToken(app.Configuration["Jwt:Key"],
+            app.Configuration["Jwt:Issuer"],
+            app.Configuration["Jwt:Audience"],
+            user);
+
+        return Results.Ok(new { token = tokenString });
+    }
+    else {
+        return Results.BadRequest("Login Inválido");
+    }
+}).Produces(StatusCodes.Status400BadRequest).Produces(StatusCodes.Status200OK).WithName("Login").WithTags("Authentication");
 
 // Categories
 app.MapPost("/categories", async (Category category, CatalogMinimalAPIContext db) => {
@@ -23,7 +85,7 @@ app.MapPost("/categories", async (Category category, CatalogMinimalAPIContext db
     return Results.Created($"/categories/{category.Id}", category);
 });
 
-app.MapGet("/categories", async (CatalogMinimalAPIContext db) => await db.Categories.ToListAsync());
+app.MapGet("/categories", async (CatalogMinimalAPIContext db) => await db.Categories.ToListAsync()).RequireAuthorization();
 
 app.MapGet("/categories/{id:int}", async (int id, CatalogMinimalAPIContext db) => {
     return await db.Categories.FindAsync(id) is Category category ? Results.Ok(category) : Results.NotFound();
@@ -64,7 +126,7 @@ app.MapPost("/products", async (Product product, CatalogMinimalAPIContext db) =>
     return Results.Created($"/categories/{product.Id}", product);
 });
 
-app.MapGet("/products", async (CatalogMinimalAPIContext db) => await db.Produts.ToListAsync());
+app.MapGet("/products", async (CatalogMinimalAPIContext db) => await db.Produts.ToListAsync()).RequireAuthorization();
 
 app.MapGet("/products/{id:int}", async (int id, CatalogMinimalAPIContext db) => {
     return await db.Produts.FindAsync(id) is Product product ? Results.Ok(product) : Results.NotFound();
@@ -94,7 +156,7 @@ app.MapPut("/products/{id:int}", async (int id, Product product, CatalogMinimalA
 
 app.MapDelete("/products/{id:int}", async (int id, CatalogMinimalAPIContext db) => {
     var product = await db.Produts.FindAsync(id);
-    if (product  is null) {
+    if (product is null) {
         return Results.NotFound();
     }
 
